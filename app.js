@@ -47,8 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Main function: Performs an extended search with aggregation of results
     async function findRelatedHashtagsExtended(query) {
-        // Get initial results for the main search term
-        const primaryResults = await searchSingleHashtag(query);
+        // Get initial results for the main search term and capture all found toots
+        const { hashtags: primaryResults, tootsMap: initialTootsMap } = await searchSingleHashtag(query, true);
         
         if (primaryResults.length === 0) {
             throw new Error(`No hashtags found for "${query}".`);
@@ -65,8 +65,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const allResults = [...primaryResults]; // Results from the main search term
         const processedTags = new Set([query.toLowerCase().replace(/^#/, '')]);
         
-        // Keep all toots for analysis
-        let allToots = [];
+        // Start with the initial toots map for cross-function deduplication
+        const tootsMap = initialTootsMap;
         
         // Secondary searches for each of the top hashtags
         for (const relatedTag of topRelatedTags) {
@@ -83,17 +83,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (tagResponse.ok) {
                     const tagToots = await tagResponse.json();
-                    allToots = [...allToots, ...tagToots];
+                    // Add toots to the map using ID as key to avoid duplicates
+                    tagToots.forEach(toot => {
+                        if (!tootsMap.has(toot.id)) {
+                            tootsMap.set(toot.id, toot);
+                        }
+                    });
                 }
             } catch (error) {
                 console.warn(`Error retrieving #${relatedTag}:`, error);
             }
         }
         
+        // Convert the Map to an array of unique toots
+        const uniqueToots = Array.from(tootsMap.values());
+        console.log(`Found ${uniqueToots.length} unique toots after deduplication across all searches`);
+        
         // Extract all hashtags from the collected toots
         const hashtagCounts = {};
         
-        allToots.forEach(toot => {
+        uniqueToots.forEach(toot => {
             if (toot.tags && Array.isArray(toot.tags)) {
                 toot.tags.forEach(tag => {
                     const name = tag.name.toLowerCase();
@@ -116,7 +125,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Helper function: Performs a single hashtag search
-    async function searchSingleHashtag(query) {
+    // returnToots parameter determines whether to return the toots map for deduplication
+    async function searchSingleHashtag(query, returnToots = false) {
         // Step 1: Search for the hashtag using the search API
         let searchResults;
         try {
@@ -132,8 +142,8 @@ document.addEventListener('DOMContentLoaded', () => {
             searchResults = { hashtags: [] };
         }
 
-        // Step 2: Collect toots from various sources
-        const allToots = [];
+        // Step 2: Collect toots from various sources - use a Map to deduplicate by ID
+        const tootsMap = new Map();
         
         // 2a: If hashtags were found, get their timelines
         const foundHashtags = searchResults.hashtags || [];
@@ -142,7 +152,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const tagResponse = await fetch(`${TAG_TIMELINE_API}/${tag.name}?limit=30`);
                 if (tagResponse.ok) {
                     const tagToots = await tagResponse.json();
-                    allToots.push(...tagToots);
+                    // Add toots to the map using ID as key to avoid duplicates
+                    tagToots.forEach(toot => {
+                        if (!tootsMap.has(toot.id)) {
+                            tootsMap.set(toot.id, toot);
+                        }
+                    });
                 }
             } catch (error) {
                 console.warn(`Error retrieving hashtag #${tag.name}:`, error);
@@ -172,21 +187,30 @@ document.addEventListener('DOMContentLoaded', () => {
                     return false;
                 });
                 
-                allToots.push(...relevantPublicToots);
+                // Add relevant toots to the map, avoiding duplicates
+                relevantPublicToots.forEach(toot => {
+                    if (!tootsMap.has(toot.id)) {
+                        tootsMap.set(toot.id, toot);
+                    }
+                });
             }
         } catch (error) {
             console.warn('Error retrieving public timeline:', error);
         }
 
+        // Convert the Map to an array of unique toots
+        const uniqueToots = Array.from(tootsMap.values());
+        console.log(`Found ${uniqueToots.length} unique toots in single hashtag search`);
+        
         // If no results were found
-        if (allToots.length === 0) {
-            return [];
+        if (uniqueToots.length === 0) {
+            return returnToots ? { hashtags: [], tootsMap } : [];
         }
 
         // Step 3: Extract all hashtags from the found toots
         const hashtagCounts = {};
         
-        allToots.forEach(toot => {
+        uniqueToots.forEach(toot => {
             if (toot.tags && Array.isArray(toot.tags)) {
                 toot.tags.forEach(tag => {
                     const name = tag.name.toLowerCase();
@@ -200,7 +224,7 @@ document.addEventListener('DOMContentLoaded', () => {
             .map(([name, count]) => ({ name, count }))
             .sort((a, b) => b.count - a.count);
 
-        return sortedHashtags;
+        return returnToots ? { hashtags: sortedHashtags, tootsMap } : sortedHashtags;
     }
 
     function displayHashtags(hashtags) {
