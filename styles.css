@@ -1,4 +1,4 @@
-/* Allgemeine Stile */
+/* General Styles */
 body {
     background-color: #f7f9fc;
 }
@@ -9,7 +9,7 @@ header h1 {
     font-weight: bold;
 }
 
-/* Hashtag-Karten */
+/* Hashtag Cards */
 .hashtag-card {
     transition: transform 0.2s;
     margin-bottom: 8px;
@@ -28,7 +28,7 @@ header h1 {
     width: 100%;
 }
 
-/* Hashtag-Name */
+/* Hashtag Name */
 .hashtag-name {
     font-weight: bold;
     color: #563acc;
@@ -54,7 +54,7 @@ header h1 {
     opacity: 0.7;
 }
 
-/* Zählblase */
+/* Count Badge */
 .hashtag-count {
     background-color: #563acc;
     color: white;
@@ -86,7 +86,7 @@ header h1 {
     transition: width 0.5s ease;
 }
 
-/* Checkbox für Hashtag-Auswahl */
+/* Checkbox for Hashtag Selection */
 .form-check {
     margin: 0;
     padding: 0;
@@ -121,7 +121,7 @@ header h1 {
     margin-top: 10px;
 }
 
-/* Legende */
+/* Legend */
 .legend {
     display: flex;
     flex-wrap: wrap;
@@ -143,12 +143,12 @@ header h1 {
     margin-right: 4px;
 }
 
-/* Ladeanzeige */
+/* Loading Indicator */
 #loading {
     padding: 20px;
 }
 
-/* Farbcodierung für Hashtag-Popularität */
+/* Color Coding for Hashtag Popularity */
 .popularity-original {
     border-left: 4px solid #563acc;
     background-color: rgba(86, 58, 204, 0.05);
@@ -166,7 +166,7 @@ header h1 {
     border-left: 4px solid #6c757d;
 }
 
-/* Responsive Anpassungen */
+/* Responsive Adjustments */
 @media (max-width: 768px) {
     .card-header {
         flex-direction: column;
