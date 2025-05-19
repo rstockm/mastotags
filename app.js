@@ -16,12 +16,47 @@ document.addEventListener('DOMContentLoaded', () => {
     let spinner = loadingIndicator.querySelector('.spinner-border');
     const errorMessage = document.getElementById('error-message');
     const createMastowallBtn = document.getElementById('create-mastowall-btn');
+    const copyUrlBtn = document.getElementById('copy-url-btn');
+    
+    // Event handler for the Copy URL Button
+    copyUrlBtn.addEventListener('click', function(e) {
+        e.preventDefault(); // Prevent link navigation
+        const currentSearch = searchTerm.value.trim();
+        if (currentSearch) {
+            // Create URL with search parameter
+            const url = new URL(window.location.href);
+            url.search = `?q=${encodeURIComponent(currentSearch)}`;
+            
+            // Copy URL to clipboard
+            navigator.clipboard.writeText(url.toString())
+                .then(() => {
+                    // Show temporary confirmation
+                    const originalText = '<i class="bi bi-link me-2"></i>Copy URL';
+                    this.innerHTML = '<i class="bi bi-check me-2"></i>Copied!';
+                    setTimeout(() => {
+                        this.innerHTML = originalText;
+                    }, 2000);
+                })
+                .catch(err => {
+                    console.error('Failed to copy URL: ', err);
+                    alert('Failed to copy URL to clipboard.');
+                });
+        }
+    });
 
     // Set CSRF token
     const token = csrfToken.set();
     document.querySelector('meta[name="csrf-token"]').content = token;
 
-    // Mastodon API Endpunkte
+    // Function to extract URL parameters
+    function getUrlParameter(name) {
+        name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+        const regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+        const results = regex.exec(location.search);
+        return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
+    }
+
+    // Mastodon API endpoints
     const MASTODON_INSTANCE = 'https://mastodon.social';
     const PUBLIC_TIMELINE_API = `${MASTODON_INSTANCE}/api/v1/timelines/public`;
     const TAG_TIMELINE_API = `${MASTODON_INSTANCE}/api/v1/timelines/tag`;
@@ -35,10 +70,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Array for selected hashtags
     let selectedHashtags = [];
 
-    searchForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const query = searchTerm.value.trim();
+    // Function to execute the search
+    async function executeSearch(query) {
         if (!query) return;
 
         // Validate input
@@ -46,6 +79,9 @@ document.addEventListener('DOMContentLoaded', () => {
             showError('Invalid hashtag format. Please use only letters, numbers, and underscores.');
             return;
         }
+
+        // Update URL with current search term without page reload
+        updateUrlWithSearch(query);
 
         // Check rate limiting
         if (!rateLimiter.isAllowed(window.location.hostname)) {
@@ -79,7 +115,33 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             loadingIndicator.classList.add('d-none');
         }
+    }
+
+    // Function to update URL without page reload
+    function updateUrlWithSearch(query) {
+        // Create a new URL based on the current one
+        const url = new URL(window.location.href);
+        // Set the search parameter
+        url.searchParams.set('q', query);
+        // Update browser URL without reloading the page
+        window.history.pushState({}, '', url.toString());
+    }
+
+    searchForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const query = searchTerm.value.trim();
+        executeSearch(query);
     });
+
+    // Check for URL parameters when loading the page
+    const searchQuery = getUrlParameter('q') || getUrlParameter('search') || getUrlParameter('hashtag');
+    if (searchQuery) {
+        // Enter search term in the search field
+        searchTerm.value = searchQuery;
+        // Execute search immediately
+        executeSearch(searchQuery);
+    }
 
     // Main function: Performs an extended search with aggregation of results
     async function findRelatedHashtagsExtended(query) {
@@ -155,7 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Mark the original search term, but don't change the sorting
                 isOriginal: name.toLowerCase() === query.toLowerCase().replace(/^#/, '')
             }))
-            .filter(tag => tag.count > 1 || tag.isOriginal) // Hashtags mit nur einem Treffer entfernen, außer es ist der ursprüngliche Suchbegriff
+            .filter(tag => tag.count > 1 || tag.isOriginal) // Remove hashtags with only one occurrence, except if it's the original search term
             .sort((a, b) => b.count - a.count);
         
         return sortedHashtags;
@@ -268,7 +330,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Mark the original search term, but don't change the sorting
                 isOriginal: name.toLowerCase() === query.toLowerCase().replace(/^#/, '')
             }))
-            .filter(tag => tag.count > 1 || tag.isOriginal) // Hashtags mit nur einem Treffer entfernen, außer es ist der ursprüngliche Suchbegriff
+            .filter(tag => tag.count > 1 || tag.isOriginal) // Remove hashtags with only one occurrence, except if it's the original search term
             .sort((a, b) => b.count - a.count);
 
         return returnToots ? { hashtags: sortedHashtags, tootsMap } : sortedHashtags;
@@ -440,9 +502,23 @@ document.addEventListener('DOMContentLoaded', () => {
             if (selectedHashtags.length > 0) {
                 createMastowallBtn.classList.remove('disabled');
                 createMastowallBtn.setAttribute('aria-disabled', 'false');
+                createMastowallBtn.setAttribute('target', '_blank');
+                
+                // Also activate the Copy URL button
+                if (copyUrlBtn) {
+                    copyUrlBtn.classList.remove('disabled');
+                    copyUrlBtn.setAttribute('aria-disabled', 'false');
+                }
             } else {
                 createMastowallBtn.classList.add('disabled');
                 createMastowallBtn.setAttribute('aria-disabled', 'true');
+                createMastowallBtn.removeAttribute('target');
+                
+                // Also deactivate the Copy URL button
+                if (copyUrlBtn) {
+                    copyUrlBtn.classList.add('disabled');
+                    copyUrlBtn.setAttribute('aria-disabled', 'true');
+                }
             }
             
             // Update URL for the button
