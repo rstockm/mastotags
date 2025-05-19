@@ -155,6 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Mark the original search term, but don't change the sorting
                 isOriginal: name.toLowerCase() === query.toLowerCase().replace(/^#/, '')
             }))
+            .filter(tag => tag.count > 1 || tag.isOriginal) // Hashtags mit nur einem Treffer entfernen, außer es ist der ursprüngliche Suchbegriff
             .sort((a, b) => b.count - a.count);
         
         return sortedHashtags;
@@ -261,7 +262,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Convert to array and sort by frequency
         const sortedHashtags = Object.entries(hashtagCounts)
-            .map(([name, count]) => ({ name, count }))
+            .map(([name, count]) => ({ 
+                name, 
+                count,
+                // Mark the original search term, but don't change the sorting
+                isOriginal: name.toLowerCase() === query.toLowerCase().replace(/^#/, '')
+            }))
+            .filter(tag => tag.count > 1 || tag.isOriginal) // Hashtags mit nur einem Treffer entfernen, außer es ist der ursprüngliche Suchbegriff
             .sort((a, b) => b.count - a.count);
 
         return returnToots ? { hashtags: sortedHashtags, tootsMap } : sortedHashtags;
