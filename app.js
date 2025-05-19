@@ -1,11 +1,25 @@
+import {
+    rateLimiter,
+    sanitizeInput,
+    validateHashtag,
+    secureApiCall,
+    csrfToken,
+    csp
+} from './security.js';
+
 document.addEventListener('DOMContentLoaded', () => {
     const searchForm = document.getElementById('search-form');
     const searchTerm = document.getElementById('search-term');
     const resultsContainer = document.getElementById('results-container');
     const hashtagsList = document.getElementById('hashtags-list');
     const loadingIndicator = document.getElementById('loading');
+    let spinner = loadingIndicator.querySelector('.spinner-border');
     const errorMessage = document.getElementById('error-message');
     const createMastowallBtn = document.getElementById('create-mastowall-btn');
+
+    // Set CSRF token
+    const token = csrfToken.set();
+    document.querySelector('meta[name="csrf-token"]').content = token;
 
     // Mastodon API Endpunkte
     const MASTODON_INSTANCE = 'https://mastodon.social';
@@ -27,19 +41,41 @@ document.addEventListener('DOMContentLoaded', () => {
         const query = searchTerm.value.trim();
         if (!query) return;
 
+        // Validate input
+        if (!validateHashtag(query)) {
+            showError('Invalid hashtag format. Please use only letters, numbers, and underscores.');
+            return;
+        }
+
+        // Check rate limiting
+        if (!rateLimiter.isAllowed(window.location.hostname)) {
+            showError('Too many requests. Please wait a moment.');
+            return;
+        }
+
         // Reset UI
         hashtagsList.innerHTML = '';
         errorMessage.classList.add('d-none');
         resultsContainer.classList.remove('d-none');
+        
+        // Create fresh spinner element to ensure animation works
+        const oldSpinner = spinner;
+        const newSpinner = oldSpinner.cloneNode(true);
+        oldSpinner.parentNode.replaceChild(newSpinner, oldSpinner);
+        spinner = newSpinner; // Update the reference to the new spinner
+        
+        // Show loading indicator
         loadingIndicator.classList.remove('d-none');
-        selectedHashtags = []; // Reset selected hashtags
+        
+        selectedHashtags = [];
         updateMastowallButton();
 
         try {
             const hashtags = await findRelatedHashtagsExtended(query);
             displayHashtags(hashtags);
         } catch (error) {
-            showError(error.message || 'An error occurred while retrieving hashtags.');
+            console.error('Search error:', error);
+            showError(error.message || 'An error occurred.');
         } finally {
             loadingIndicator.classList.add('d-none');
         }
@@ -127,16 +163,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // Helper function: Performs a single hashtag search
     // returnToots parameter determines whether to return the toots map for deduplication
     async function searchSingleHashtag(query, returnToots = false) {
-        // Step 1: Search for the hashtag using the search API
+        // Input sanitization
+        query = sanitizeInput(query);
+        
         let searchResults;
         try {
-            const searchResponse = await fetch(`${SEARCH_API}?q=${encodeURIComponent(query)}&type=hashtags&limit=5`);
-            if (searchResponse.ok) {
-                searchResults = await searchResponse.json();
-            } else {
-                console.warn('Hashtag search failed, using alternative method');
-                searchResults = { hashtags: [] };
-            }
+            const searchResponse = await secureApiCall(
+                `${SEARCH_API}?q=${encodeURIComponent(query)}&type=hashtags&limit=5`,
+                {
+                    headers: {
+                        'X-CSRF-Token': token
+                    }
+                }
+            );
+            searchResults = await searchResponse.json();
         } catch (error) {
             console.warn('Hashtag search failed:', error);
             searchResults = { hashtags: [] };
@@ -233,10 +273,12 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Maximum value for popularity determination
         const maxCount = hashtags[0].count;
 
         hashtags.forEach((tag, index) => {
+            // Sanitize tag name
+            const sanitizedName = sanitizeInput(tag.name);
+            
             const listItem = document.createElement('li');
             listItem.className = 'list-group-item hashtag-card';
             
@@ -258,10 +300,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // 1. Hashtag as link to Mastowall
             const hashtagLink = document.createElement('a');
             hashtagLink.className = 'hashtag-name me-3';
-            hashtagLink.href = `https://rstockm.github.io/mastowall/?hashtags=${tag.name}&server=https://mastodon.social`;
+            hashtagLink.href = `https://rstockm.github.io/mastowall/?hashtags=${sanitizedName}&server=https://mastodon.social`;
             hashtagLink.target = '_blank';
             hashtagLink.rel = 'noopener noreferrer';
-            hashtagLink.textContent = `#${tag.name}`;
+            hashtagLink.textContent = `#${sanitizedName}`;
             
             // Stop event propagation for the link
             hashtagLink.addEventListener('click', (e) => {
@@ -312,13 +354,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.className = 'form-check-input hashtag-checkbox';
-            checkbox.id = `hashtag-${tag.name}`;
-            checkbox.value = tag.name;
+            checkbox.id = `hashtag-${sanitizedName}`;
+            checkbox.value = sanitizedName;
             
             // Select the first three hashtags by default
             if (index < MAX_SELECTED_HASHTAGS) {
                 checkbox.checked = true;
-                selectedHashtags.push(tag.name);
+                selectedHashtags.push(sanitizedName);
             }
             
             checkbox.addEventListener('change', function() {
