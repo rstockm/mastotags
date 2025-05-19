@@ -92,11 +92,37 @@
         .container-fluid {
             padding: 0;
         }
+        
+        /* Mobile Anpassungen */
+        @media (max-width: 768px) {
+            .site-header {
+                font-size: 1rem;
+            }
+            
+            .site-header .full-title {
+                display: none;
+            }
+            
+            .site-header .mobile-title {
+                display: inline;
+            }
+        }
+        
+        @media (min-width: 769px) {
+            .site-header .mobile-title {
+                display: none;
+            }
+            
+            .site-header .full-title {
+                display: inline;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="site-header">
-        Mastotags 1.0 - written by Claude Sonnet 3.7 - Prompting: Ralf Stockmann (rstockm)
+        <span class="mobile-title">Mastotags 1.0</span>
+        <span class="full-title">Mastotags 1.0 - written by Claude Sonnet 3.7 - Prompting: Ralf Stockmann (rstockm)</span>
     </div>
     
     <div class="container content-container">
