@@ -189,4 +189,59 @@ header h1 {
         flex-direction: column;
         gap: 10px;
     }
+    
+    /* Mobil-spezifische Verbesserungen */
+    .container, .container-fluid {
+        padding-left: 8px !important;
+        padding-right: 8px !important;
+    }
+    
+    .content-container {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        max-width: 100% !important;
+    }
+    
+    .col-md-8 {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+    
+    .card {
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+    }
+    
+    /* Kompaktere Buttons auf mobilen Geräten */
+    .action-button {
+        padding: 0.25rem 0.5rem !important;
+        font-size: 0.85rem !important;
+    }
+    
+    #copy-url-btn .button-text {
+        display: none !important;
+    }
+    
+    #copy-url-btn i {
+        margin-right: 0 !important;
+    }
+    
+    #create-mastowall-btn {
+        padding-right: 0.5rem !important;
+    }
+    
+    .action-button i {
+        font-size: 0.9rem !important;
+    }
+    
+    /* Kompaktere Hashtag-Karten */
+    .hashtag-card {
+        padding: 8px 10px;
+    }
+    
+    /* Kleinere Schriftgrößen */
+    .lead {
+        font-size: 1rem;
+    }
 } 
