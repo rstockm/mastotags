@@ -56,6 +56,123 @@ document.addEventListener('DOMContentLoaded', () => {
         return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
     }
 
+    // Unicode-normalization helper (NFC + lowercase)
+    function normalizeText(text) {
+        if (typeof text !== 'string') return '';
+        try {
+            return text.normalize('NFC').toLowerCase();
+        } catch (e) {
+            // Fallback if normalize is unavailable
+            return text.toLowerCase();
+        }
+    }
+
+    // Fold to ASCII-like form: remove diacritics (NFD) + lowercase
+    function foldText(text) {
+        if (typeof text !== 'string') return '';
+        try {
+            return text.normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase();
+        } catch (e) {
+            // Basic fallback range for combining marks
+            return text.normalize ? text.normalize('NFD').replace(/[\u0300-\u036f]+/g, '').toLowerCase() : text.toLowerCase();
+        }
+    }
+
+    // Extract visible text from Mastodon HTML content
+    function htmlToText(html) {
+        const div = document.createElement('div');
+        div.innerHTML = html || '';
+        return div.textContent || '';
+    }
+
+    // Count exact hashtag occurrences in toot contents (Unicode-aware, case-insensitive)
+    function countExactHashtagOccurrences(toots, query) {
+        const q = query.replace(/^#/, '');
+        const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(`(^|[^\\p{L}\\p{N}_])#${escaped}(?![\\p{L}\\p{N}_])`, 'iu');
+        let count = 0;
+        for (const toot of toots) {
+            const text = htmlToText(toot.content);
+            if (re.test(text)) count++;
+        }
+        return count;
+    }
+
+    // Extract all hashtags from toot content (without '#')
+    function extractHashtagsFromContent(html) {
+        const text = htmlToText(html);
+        const re = /(^|[^\p{L}\p{N}_])#([\p{L}\p{N}_\p{M}]+)(?![\p{L}\p{N}_])/giu;
+        const result = [];
+        let m;
+        while ((m = re.exec(text)) !== null) {
+            result.push(m[2]);
+        }
+        return result;
+    }
+
+    // Suggest best variant by analyzing fulltexts from top hashtag search results
+    async function suggestVariant(query) {
+        const q = query.replace(/^#/, '');
+        const foldedQuery = foldText(q);
+        try {
+            // Step 1: search for hashtags related to q
+            const searchResp = await secureApiCall(`${SEARCH_API}?q=${encodeURIComponent(q)}&type=hashtags&limit=5`, {
+                headers: { 'X-CSRF-Token': localStorage.getItem('csrfToken') || '' }
+            });
+            const searchJson = await searchResp.json();
+            const candidateTags = (searchJson.hashtags || []).map(h => h.name).filter(Boolean);
+            const topCandidates = candidateTags.slice(0, 3);
+
+            const counts = new Map(); // exact tag -> count in fulltext
+
+            // Step 2: for each candidate tag, fetch its timeline and count exact occurrences in content
+            for (const tag of topCandidates) {
+                try {
+                    const resp = await fetch(`${TAG_TIMELINE_API}/${encodeURIComponent(tag)}?limit=30`);
+                    if (!resp.ok) continue;
+                    const toots = await resp.json();
+                    // count occurrences of any variant whose folded form matches the query
+                    for (const toot of toots) {
+                        const tagsInText = extractHashtagsFromContent(toot.content);
+                        for (const t of tagsInText) {
+                            if (foldText(t) === foldedQuery) {
+                                counts.set(t, (counts.get(t) || 0) + 1);
+                            }
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            // Fallback: also sample public timeline to catch variants not in topCandidates
+            if (counts.size === 0) {
+                try {
+                    const resp = await fetch(`${PUBLIC_TIMELINE_API}?limit=40`);
+                    if (resp.ok) {
+                        const toots = await resp.json();
+                        for (const toot of toots) {
+                            const tagsInText = extractHashtagsFromContent(toot.content);
+                            for (const t of tagsInText) {
+                                if (foldText(t) === foldedQuery) {
+                                    counts.set(t, (counts.get(t) || 0) + 1);
+                                }
+                            }
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            if (counts.size === 0) return null;
+            // choose best variant
+            let best = null, bestCount = -1;
+            for (const [tag, c] of counts.entries()) {
+                if (c > bestCount) { best = tag; bestCount = c; }
+            }
+            return best;
+        } catch (_) {
+            return null;
+        }
+    }
+
     // Mastodon API endpoints
     const MASTODON_INSTANCE = 'https://mastodon.social';
     const PUBLIC_TIMELINE_API = `${MASTODON_INSTANCE}/api/v1/timelines/public`;
@@ -71,13 +188,24 @@ document.addEventListener('DOMContentLoaded', () => {
     let selectedHashtags = [];
 
     // Function to execute the search
-    async function executeSearch(query) {
+    async function executeSearch(query, allowSuggest = true) {
         if (!query) return;
 
         // Validate input
         if (!validateHashtag(query)) {
             showError('Invalid hashtag format. Please use only letters, numbers, and underscores.');
             return;
+        }
+
+        // Auto-Variante vorschlagen und strikt dorthin umbiegen (ohne Mischen)
+        if (allowSuggest) {
+            const suggestion = await suggestVariant(query);
+            if (suggestion && normalizeText(suggestion) !== normalizeText(query)) {
+                // update input and rerun strictly
+                searchTerm.value = suggestion;
+                await executeSearch(suggestion, false);
+                return;
+            }
         }
 
         // Update URL with current search term without page reload
@@ -161,7 +289,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Perform a search for each top hashtag
         const allResults = [...primaryResults]; // Results from the main search term
-        const processedTags = new Set([query.toLowerCase().replace(/^#/, '')]);
+        const processedTags = new Set([normalizeText(query.replace(/^#/, ''))]);
         
         // Start with the initial toots map for cross-function deduplication
         const tootsMap = initialTootsMap;
@@ -169,15 +297,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // Secondary searches for each of the top hashtags
         for (const relatedTag of topRelatedTags) {
             // Don't search the same hashtags multiple times
-            if (processedTags.has(relatedTag.toLowerCase())) {
+            if (processedTags.has(normalizeText(relatedTag))) {
                 continue;
             }
             
-            processedTags.add(relatedTag.toLowerCase());
+            processedTags.add(normalizeText(relatedTag));
             
             try {
                 console.log(`Searching for related hashtags for #${relatedTag}...`);
-                const tagResponse = await fetch(`${TAG_TIMELINE_API}/${relatedTag}?limit=30`);
+                const tagResponse = await fetch(`${TAG_TIMELINE_API}/${encodeURIComponent(relatedTag)}?limit=30`);
                 
                 if (tagResponse.ok) {
                     const tagToots = await tagResponse.json();
@@ -197,28 +325,47 @@ document.addEventListener('DOMContentLoaded', () => {
         const uniqueToots = Array.from(tootsMap.values());
         console.log(`Found ${uniqueToots.length} unique toots after deduplication across all searches`);
         
-        // Extract all hashtags from the collected toots
+        // Extract all hashtags from the collected toots (exact names)
         const hashtagCounts = {};
+        const displayNameByName = {};
         
         uniqueToots.forEach(toot => {
             if (toot.tags && Array.isArray(toot.tags)) {
                 toot.tags.forEach(tag => {
-                    const name = tag.name.toLowerCase();
-                    hashtagCounts[name] = (hashtagCounts[name] || 0) + 1;
+                    const key = normalizeText(tag.name);
+                    hashtagCounts[key] = (hashtagCounts[key] || 0) + 1;
+                    if (!displayNameByName[key]) {
+                        displayNameByName[key] = tag.name; // remember first seen display variant
+                    }
                 });
             }
         });
 
         // Convert to array and sort by frequency
-        const sortedHashtags = Object.entries(hashtagCounts)
-            .map(([name, count]) => ({ 
-                name, 
+        const originalKey = normalizeText(query.replace(/^#/, ''));
+        let sortedHashtags = Object.entries(hashtagCounts)
+            .map(([key, count]) => ({
+                name: displayNameByName[key] || key,
                 count,
-                // Mark the original search term, but don't change the sorting
-                isOriginal: name.toLowerCase() === query.toLowerCase().replace(/^#/, '')
+                isOriginal: key === originalKey
             }))
             .filter(tag => tag.count > 1 || tag.isOriginal) // Remove hashtags with only one occurrence, except if it's the original search term
             .sort((a, b) => b.count - a.count);
+
+        // Ensure exact original hashtag presence using content-based detection
+        const exactCount = countExactHashtagOccurrences(uniqueToots, query);
+        if (exactCount > 0) {
+            const displayOriginal = query.replace(/^#/, '');
+            const existingIndex = sortedHashtags.findIndex(t => normalizeText(t.name) === originalKey);
+            if (existingIndex >= 0) {
+                sortedHashtags[existingIndex].name = displayOriginal;
+                sortedHashtags[existingIndex].count = exactCount;
+                sortedHashtags[existingIndex].isOriginal = true;
+            } else {
+                sortedHashtags.push({ name: displayOriginal, count: exactCount, isOriginal: true });
+            }
+            sortedHashtags = sortedHashtags.sort((a, b) => b.count - a.count);
+        }
         
         return sortedHashtags;
     }
@@ -226,8 +373,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Helper function: Performs a single hashtag search
     // returnToots parameter determines whether to return the toots map for deduplication
     async function searchSingleHashtag(query, returnToots = false) {
-        // Input sanitization
+        // Input sanitization (does not alter Unicode letters)
         query = sanitizeInput(query);
+        const normalizedQuery = normalizeText(query.replace(/^#/, ''));
         
         let searchResults;
         try {
@@ -252,7 +400,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const foundHashtags = searchResults.hashtags || [];
         for (const tag of foundHashtags.slice(0, 3)) { // Limit to the first 3
             try {
-                const tagResponse = await fetch(`${TAG_TIMELINE_API}/${tag.name}?limit=30`);
+                const tagResponse = await fetch(`${TAG_TIMELINE_API}/${encodeURIComponent(tag.name)}?limit=30`);
                 if (tagResponse.ok) {
                     const tagToots = await tagResponse.json();
                     // Add toots to the map using ID as key to avoid duplicates
@@ -266,6 +414,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.warn(`Error retrieving hashtag #${tag.name}:`, error);
             }
         }
+
+        // 2a-extended: Always also fetch timeline for the exact search term (ensures original tag presence)
+        try {
+            const exactTagResponse = await fetch(`${TAG_TIMELINE_API}/${encodeURIComponent(query)}?limit=30`);
+            if (exactTagResponse.ok) {
+                const exactTagToots = await exactTagResponse.json();
+                exactTagToots.forEach(toot => {
+                    if (!tootsMap.has(toot.id)) {
+                        tootsMap.set(toot.id, toot);
+                    }
+                });
+            }
+        } catch (error) {
+            console.warn(`Error retrieving exact hashtag #${query}:`, error);
+        }
         
         // 2b: Also search in the public timeline
         try {
@@ -276,15 +439,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Only add toots that contain the search term (in content or hashtags)
                 const relevantPublicToots = publicToots.filter(toot => {
                     // Check content
-                    if (toot.content.toLowerCase().includes(query.toLowerCase())) {
+                    if (normalizeText(toot.content).includes(normalizeText(query))) {
                         return true;
                     }
                     
                     // Check hashtags
                     if (toot.tags && Array.isArray(toot.tags)) {
-                        return toot.tags.some(tag => 
-                            tag.name.toLowerCase().includes(query.toLowerCase())
-                        );
+                        return toot.tags.some(tag => {
+                            const tagNorm = normalizeText(tag.name);
+                            // exact match or substring match
+                            return tagNorm === normalizedQuery || tagNorm.includes(normalizeText(query));
+                        });
                     }
                     
                     return false;
@@ -310,28 +475,47 @@ document.addEventListener('DOMContentLoaded', () => {
             return returnToots ? { hashtags: [], tootsMap } : [];
         }
 
-        // Step 3: Extract all hashtags from the found toots
+        // Step 3: Extract all hashtags from the found toots (exact names)
         const hashtagCounts = {};
+        const displayNameByName = {};
         
         uniqueToots.forEach(toot => {
             if (toot.tags && Array.isArray(toot.tags)) {
                 toot.tags.forEach(tag => {
-                    const name = tag.name.toLowerCase();
-                    hashtagCounts[name] = (hashtagCounts[name] || 0) + 1;
+                    const key = normalizeText(tag.name);
+                    hashtagCounts[key] = (hashtagCounts[key] || 0) + 1;
+                    if (!displayNameByName[key]) {
+                        displayNameByName[key] = tag.name;
+                    }
                 });
             }
         });
 
         // Convert to array and sort by frequency
-        const sortedHashtags = Object.entries(hashtagCounts)
-            .map(([name, count]) => ({ 
-                name, 
+        const originalKey2 = normalizeText(query.replace(/^#/, ''));
+        let sortedHashtags = Object.entries(hashtagCounts)
+            .map(([key, count]) => ({
+                name: displayNameByName[key] || key,
                 count,
-                // Mark the original search term, but don't change the sorting
-                isOriginal: name.toLowerCase() === query.toLowerCase().replace(/^#/, '')
+                isOriginal: key === originalKey2
             }))
             .filter(tag => tag.count > 1 || tag.isOriginal) // Remove hashtags with only one occurrence, except if it's the original search term
             .sort((a, b) => b.count - a.count);
+
+        // Ensure exact original hashtag presence using content-based detection
+        const exactCount2 = countExactHashtagOccurrences(uniqueToots, query);
+        if (exactCount2 > 0) {
+            const displayOriginal2 = query.replace(/^#/, '');
+            const existingIndex2 = sortedHashtags.findIndex(t => normalizeText(t.name) === originalKey2);
+            if (existingIndex2 >= 0) {
+                sortedHashtags[existingIndex2].name = displayOriginal2;
+                sortedHashtags[existingIndex2].count = exactCount2;
+                sortedHashtags[existingIndex2].isOriginal = true;
+            } else {
+                sortedHashtags.push({ name: displayOriginal2, count: exactCount2, isOriginal: true });
+            }
+            sortedHashtags = sortedHashtags.sort((a, b) => b.count - a.count);
+        }
 
         return returnToots ? { hashtags: sortedHashtags, tootsMap } : sortedHashtags;
     }
@@ -369,7 +553,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // 1. Hashtag as link to Mastowall
             const hashtagLink = document.createElement('a');
             hashtagLink.className = 'hashtag-name me-3';
-            hashtagLink.href = `https://rstockm.github.io/mastowall/?hashtags=${sanitizedName}&server=https://mastodon.social`;
+            const encodedName = encodeURIComponent(sanitizedName);
+            hashtagLink.href = `https://rstockm.github.io/mastowall/?hashtags=${encodedName}&server=https://mastodon.social`;
             hashtagLink.target = '_blank';
             hashtagLink.rel = 'noopener noreferrer';
             hashtagLink.textContent = `#${sanitizedName}`;
@@ -522,7 +707,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             // Update URL for the button
-            const hashtagsParam = selectedHashtags.join(',');
+            const hashtagsParam = selectedHashtags.map(h => encodeURIComponent(h)).join(',');
             createMastowallBtn.href = `https://rstockm.github.io/mastowall/?hashtags=${hashtagsParam}&server=https://mastodon.social`;
         }
     }

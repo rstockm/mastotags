@@ -1,11 +1,6 @@
-# Mastotags
+# Mastotags 1.1
 
 Mastotags is a web service that helps you find the most popular hashtags for current events, topics, or trending discussions on Mastodon. This tool simplifies the process of discovering which hashtags have the greatest reach for any given topic.
-
-Test it: https://rstockm.github.io/mastotags
-
-![image](https://github.com/user-attachments/assets/de23aa1f-2f19-4cdc-b038-503977c1b4f0)
-
 
 ## Features
 
@@ -16,6 +11,7 @@ Test it: https://rstockm.github.io/mastotags
 - **No Authentication Required**: Works without Mastodon login or API tokens
 - **URL Parameter Support**: Search directly via URL parameters for easy sharing and bookmarking
 - **Share Search Results**: Copy a direct link to your current search results
+ - **Automatic Variant Suggestion (1.1)**: When users enter a variant like "Koln", Mastotags samples real posts and automatically switches to the most used exact hashtag variant (e.g., "Köln") and then performs a strict search. Counts remain strict; no merging across variants.
 
 ## How It Works
 
@@ -38,6 +34,12 @@ Test it: https://rstockm.github.io/mastotags
    - Direct search via URL: `?q=topic`, `?search=topic`, or `?hashtag=topic`
    - Dynamic URL updates reflecting your current search without page reloads
    - Copy URL button to easily share your search results
+
+## What’s New in 1.1
+
+- Strict Unicode handling for hashtags (e.g., `#Köln`) without mixing with normalized forms
+- Exact-count detection by scanning toot fulltexts for the exact hashtag spelling
+- Automatic variant suggestion: detects the most common exact variant (from real posts) matching the folded form of the query and reruns the search strictly with that variant
 
 ## Technology
 

@@ -41,7 +41,7 @@ function sanitizeInput(input) {
 // Hashtag Validation
 function validateHashtag(hashtag) {
     if (typeof hashtag !== 'string') return false;
-    const hashtagRegex = /^[a-zA-Z0-9_]+$/;
+    const hashtagRegex = /^[\p{L}\p{N}\p{M}_]+$/u;
     return hashtagRegex.test(hashtag.replace(/^#/, ''));
 }
 
