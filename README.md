@@ -2,6 +2,9 @@
 
 Mastotags is a web service that helps you find the most popular hashtags for current events, topics, or trending discussions on Mastodon. This tool simplifies the process of discovering which hashtags have the greatest reach for any given topic.
 
+<img width="1770" height="1480" alt="image" src="https://github.com/user-attachments/assets/6bbc84a0-b718-4068-af20-b57dfb8fcf57" />
+
+
 ## Features
 
 - **Smart Hashtag Search**: Enter any topic, event name, or existing hashtag to discover related tags
