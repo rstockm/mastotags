@@ -112,6 +112,8 @@ header h1 {
     transition: all 0.2s ease;
     font-size: 0.85rem;
     padding: 0.25rem 0.75rem;
+    display: inline-flex;
+    align-items: center;
 }
 
 #create-mastowall-btn:not(.disabled):hover {
@@ -119,8 +121,40 @@ header h1 {
     box-shadow: 0 4px 8px rgba(0,0,0,0.1);
 }
 
+/* Ensure header action buttons are vertically centered */
+.card-header .action-button {
+    display: inline-flex;
+    align-items: center;
+}
+
 .selection-info {
     margin-top: 10px;
+}
+
+/* Header Grid Layout for robust vertical alignment */
+.header-grid {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-rows: auto;
+    align-items: center;
+    gap: 1rem;
+}
+
+.header-title {
+    grid-column: 1;
+}
+
+.header-legend {
+    grid-column: 2;
+    display: flex;
+    align-items: center;
+}
+
+.header-actions {
+    grid-column: 3;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 /* Legend */
@@ -128,6 +162,7 @@ header h1 {
     display: flex;
     flex-wrap: wrap;
     font-size: 0.75rem;
+    align-items: center;
 }
 
 .legend-item {
